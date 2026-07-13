@@ -8,6 +8,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -30,7 +32,10 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int READ_REQUEST_CODE = 42;
     private FragmentLogs logFragment;
-    BroadcastReceiver myReceiver;
+    private String pendingUsbDeviceName;
+    private int pendingUsbVendorId;
+    private int pendingUsbProductId;
+    private BroadcastReceiver myReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,6 +62,21 @@ public class MainActivity extends AppCompatActivity {
         } else {
             registerReceiver(myReceiver, filter);
         }
+
+        handleUsbIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleUsbIntent(intent);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        processPendingUsbDevice();
     }
 
     @Override
@@ -108,6 +128,47 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void handleUsbIntent(Intent intent) {
+        if (intent == null) {
+            return;
+        }
+
+        if (Constants.ACTION_USB_DEVICE_PENDING.equals(intent.getAction())) {
+            pendingUsbDeviceName = intent.getStringExtra(Constants.EXTRA_USB_DEVICE_NAME);
+            pendingUsbVendorId = intent.getIntExtra(Constants.EXTRA_USB_VENDOR_ID, -1);
+            pendingUsbProductId = intent.getIntExtra(Constants.EXTRA_USB_PRODUCT_ID, -1);
+            Logger.log(this, "[*] Pending USB attach received, waiting until MainActivity is visible: " + pendingUsbDeviceName);
+        }
+    }
+
+    private void processPendingUsbDevice() {
+        if (pendingUsbDeviceName == null) {
+            return;
+        }
+
+        Logger.log(this, "[*] MainActivity visible, trying to process pending USB device");
+        UsbManager usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
+        if (usbManager == null) {
+            Logger.log(this, "[-] UsbManager unavailable in MainActivity");
+            return;
+        }
+
+        for (UsbDevice device : usbManager.getDeviceList().values()) {
+            if (device == null) {
+                continue;
+            }
+            if (pendingUsbDeviceName.equals(device.getDeviceName())
+                    && device.getVendorId() == pendingUsbVendorId
+                    && device.getProductId() == pendingUsbProductId) {
+                Logger.log(this, "[*] Found pending USB device in MainActivity: " + device.getDeviceName());
+                new PrimaryLoader().handleDevice(this, device);
+                pendingUsbDeviceName = null;
+                return;
+            }
+        }
+
+        Logger.log(this, "[!] Pending USB device not found yet, will retry when MainActivity resumes again");
+    }
 
     // Adapter for the viewpager using FragmentPagerAdapter
     // http://www.gadgetsaint.com/android/create-viewpager-tabs-android/

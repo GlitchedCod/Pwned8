@@ -38,21 +38,20 @@ public class USBHandlerActivity extends Activity {
                 int pid = device.getProductId();
                 Logger.log(this, "[*] USB device connected: " + device.getDeviceName() + " vid=0x" + Integer.toHexString(vid) + " pid=0x" + Integer.toHexString(pid));
 
-                USBDevHandler handler = null;
                 if (vid == APX_VID && pid == APX_PID) {
-                    handler = new PrimaryLoader();
-                }
-
-                // in future, Linux loaders etc. will be here
-                // maybe I'll have some kind of table mapping vid/pid to a handler interface
-
-                if (handler != null) {
-                    handler.handleDevice(this, device);
+                    Intent launchIntent = new Intent(this, MainActivity.class);
+                    launchIntent.setAction(Constants.ACTION_USB_DEVICE_PENDING);
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    launchIntent.putExtra(Constants.EXTRA_USB_DEVICE_NAME, device.getDeviceName());
+                    launchIntent.putExtra(Constants.EXTRA_USB_VENDOR_ID, vid);
+                    launchIntent.putExtra(Constants.EXTRA_USB_PRODUCT_ID, pid);
+                    startActivity(launchIntent);
+                    Logger.log(this, "[*] Forwarded pending USB attach to MainActivity");
                 } else {
                     Logger.log(this, "[-] No handler found for this USB device");
                 }
 
-                Logger.log(this, "[*] Done talking to device: " + device.getDeviceName());
+                Logger.log(this, "[*] Done processing attach for device: " + device.getDeviceName());
             } else {
                 Logger.log(this, "[-] Ignored USB action: " + action);
             }
