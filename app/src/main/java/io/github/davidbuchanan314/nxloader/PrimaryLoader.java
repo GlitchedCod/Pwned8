@@ -21,7 +21,7 @@ public class PrimaryLoader implements USBDevHandler {
     private static final int PAYLOAD_LOAD_BLOCK = 0x40020000;
     private static final int MAX_LENGTH = 0x30298;
 
-    private static final int SETUP_VENDOR_OUT = UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_VENDOR | UsbConstants.USB_RECIP_INTERFACE;
+    private static final int SETUP_VENDOR_OUT = UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_VENDOR | 0x01; // recipient interface
     private static final int REQUEST_HEADER = 0x10;
     private static final int REQUEST_RESERVED = 0x11;
     private static final int REQUEST_STACK_SPRAY = 0x12;
@@ -88,7 +88,7 @@ public class PrimaryLoader implements USBDevHandler {
 
             /* Step 1: Probe device with a standard GET_STATUS control request */
             byte[] deviceStatus = new byte[2];
-            int statusBytes = conn.controlTransfer(UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | UsbConstants.USB_RECIP_DEVICE,
+            int statusBytes = conn.controlTransfer(UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | 0x00,
                     0x00, 0, 0, deviceStatus, deviceStatus.length, 999);
             Logger.log(context, "[*] controlTransfer GET_STATUS returned " + statusBytes + " bytes");
             if (statusBytes > 0) {
