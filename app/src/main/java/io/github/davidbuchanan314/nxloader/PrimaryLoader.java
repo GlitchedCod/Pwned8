@@ -48,9 +48,23 @@ public class PrimaryLoader implements USBDevHandler {
                 return;
             }
 
+            int interfaceCount = device.getInterfaceCount();
+            Logger.log(context, "[*] USB device has " + interfaceCount + " interface(s)");
+            if (interfaceCount <= 0) {
+                Logger.log(context, "[-] No USB interfaces available on device");
+                return;
+            }
+
             intf = device.getInterface(0);
             if (intf == null) {
-                Logger.log(context, "[-] USB interface not found");
+                Logger.log(context, "[-] USB interface 0 not found");
+                return;
+            }
+
+            int endpointCount = intf.getEndpointCount();
+            Logger.log(context, "[*] USB interface 0 has " + endpointCount + " endpoint(s)");
+            if (endpointCount < 2) {
+                Logger.log(context, "[-] USB interface does not have enough endpoints");
                 return;
             }
 
