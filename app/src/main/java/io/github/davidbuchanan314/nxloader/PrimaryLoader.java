@@ -21,7 +21,7 @@ public class PrimaryLoader implements USBDevHandler {
     private static final int PAYLOAD_LOAD_BLOCK = 0x40020000;
     private static final int MAX_LENGTH = 0x30298;
 
-    private static final int SETUP_VENDOR_OUT = UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_VENDOR | 0x01; // recipient interface
+    private static final int SETUP_VENDOR_OUT = UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_VENDOR | 0x00; // recipient device
     private static final int REQUEST_HEADER = 0x10;
     private static final int REQUEST_RESERVED = 0x11;
     private static final int REQUEST_STACK_SPRAY = 0x12;
@@ -194,10 +194,11 @@ public class PrimaryLoader implements USBDevHandler {
 
             Logger.log(context, "[*] controlTransfer returned " + result + " for packet " + packetIndex);
             if (result < 0) {
-                return -1;
+                Logger.log(context, "[!] Setup packet " + packetIndex + " failed; continuing for exploit stream");
+            } else {
+                totalSent += chunkSize;
             }
 
-            totalSent += chunkSize;
             offset += chunkSize;
             packetIndex++;
         }

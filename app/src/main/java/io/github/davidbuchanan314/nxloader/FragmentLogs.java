@@ -26,6 +26,7 @@ public class FragmentLogs extends Fragment {
         // Inflate the layout for this fragment
         View view = inflater.inflate(R.layout.fragment_logs, container, false);
         logText = view.findViewById(R.id.logs_actions);
+        logText.setTextIsSelectable(true);
         logText.setText("\n[*] App started\n");
         return view;
     }

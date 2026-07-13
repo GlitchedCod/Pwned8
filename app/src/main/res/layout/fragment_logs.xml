@@ -37,7 +37,11 @@
                 android:layout_marginBottom="16dp"
                 android:layout_marginEnd="16dp"
                 android:layout_marginStart="16dp"
-                android:typeface="monospace" />
+                android:typeface="monospace"
+                android:textIsSelectable="true"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:longClickable="true" />
         </ScrollView>
 
     </LinearLayout>
