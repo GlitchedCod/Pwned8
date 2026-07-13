@@ -133,15 +133,22 @@ public class PrimaryLoader implements USBDevHandler {
 
             boolean low_buffer = true;
             byte[] chunk = new byte[0x1000];
-            int bytes_sent;
-            for (bytes_sent = 0; bytes_sent < unpadded_length || low_buffer; bytes_sent += 0x1000) {
-                payload.get(chunk);
+            int bytes_sent = 0;
+            while (bytes_sent < unpadded_length || low_buffer) {
+                int toCopy = Math.min(payload.remaining(), chunk.length);
+                if (toCopy > 0) {
+                    payload.get(chunk, 0, toCopy);
+                }
+                if (toCopy < chunk.length) {
+                    Arrays.fill(chunk, toCopy, chunk.length, (byte) 0x00);
+                }
                 int sent = conn.bulkTransfer(endpoint_out, chunk, chunk.length, 999);
-                Logger.log(context, "[*] bulkTransfer sent chunk at offset " + bytes_sent + " result=" + sent);
+                Logger.log(context, "[*] bulkTransfer sent chunk at offset " + bytes_sent + " size=" + chunk.length + " payload_bytes=" + toCopy + " result=" + sent);
                 if (sent != chunk.length) {
                     Logger.log(context, "[-] Sending payload failed at offset " + bytes_sent);
                     return;
                 }
+                bytes_sent += chunk.length;
                 low_buffer ^= true;
             }
 
