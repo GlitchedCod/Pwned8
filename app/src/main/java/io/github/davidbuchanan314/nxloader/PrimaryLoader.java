@@ -5,6 +5,7 @@ package io.github.davidbuchanan314.nxloader;
  */
 
 import android.content.Context;
+import android.hardware.usb.UsbConstants;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
@@ -55,25 +56,43 @@ public class PrimaryLoader implements USBDevHandler {
                 return;
             }
 
-            intf = device.getInterface(0);
-            if (intf == null) {
-                Logger.log(context, "[-] USB interface 0 not found");
+            UsbEndpoint endpoint_in = null;
+            UsbEndpoint endpoint_out = null;
+            UsbInterface selectedInterface = null;
+
+            for (int i = 0; i < interfaceCount; i++) {
+                UsbInterface candidate = device.getInterface(i);
+                if (candidate == null) continue;
+
+                int endpointCount = candidate.getEndpointCount();
+                Logger.log(context, "[*] USB interface " + i + " class=" + candidate.getInterfaceClass() + " subclass=" + candidate.getInterfaceSubclass() + " protocol=" + candidate.getInterfaceProtocol() + " has " + endpointCount + " endpoint(s)");
+
+                for (int j = 0; j < endpointCount; j++) {
+                    UsbEndpoint endpoint = candidate.getEndpoint(j);
+                    if (endpoint == null) continue;
+                    int direction = endpoint.getDirection();
+                    int type = endpoint.getType();
+                    Logger.log(context, "[*]   endpoint " + j + " direction=" + (direction == UsbConstants.USB_DIR_IN ? "IN" : "OUT") + " type=" + type + " addr=" + endpoint.getAddress());
+                    if (direction == UsbConstants.USB_DIR_IN && endpoint_in == null) {
+                        endpoint_in = endpoint;
+                    } else if (direction == UsbConstants.USB_DIR_OUT && endpoint_out == null) {
+                        endpoint_out = endpoint;
+                    }
+                }
+
+                if (endpoint_in != null && endpoint_out != null) {
+                    selectedInterface = candidate;
+                    break;
+                }
+            }
+
+            if (selectedInterface == null) {
+                Logger.log(context, "[-] No interface with both IN and OUT endpoints found");
                 return;
             }
 
-            int endpointCount = intf.getEndpointCount();
-            Logger.log(context, "[*] USB interface 0 has " + endpointCount + " endpoint(s)");
-            if (endpointCount < 2) {
-                Logger.log(context, "[-] USB interface does not have enough endpoints");
-                return;
-            }
-
-            UsbEndpoint endpoint_in = intf.getEndpoint(0);
-            UsbEndpoint endpoint_out = intf.getEndpoint(1);
-            if (endpoint_in == null || endpoint_out == null) {
-                Logger.log(context, "[-] USB endpoints not available in interface");
-                return;
-            }
+            Logger.log(context, "[*] Selected USB interface " + selectedInterface.getId() + " for payload transfer");
+            intf = selectedInterface;
 
             conn = mUsbManager.openDevice(device);
             if (conn == null) {
