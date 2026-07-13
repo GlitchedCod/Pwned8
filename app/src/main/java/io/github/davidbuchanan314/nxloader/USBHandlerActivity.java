@@ -9,8 +9,8 @@ import android.os.Bundle;
 // Ideally, this would be a Service, but Services can't handle USB Intents :(
 public class USBHandlerActivity extends Activity {
 
-    private static final int APX_VID = 0x0955;
-    private static final int APX_PID = 0x7321;
+    private static final int APX_VID = 0x05ac;
+    private static final int APX_PID = 0x1227;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <resources>
-    <!-- Nvidia APX -->
-    <usb-device vendor-id="2389" product-id="29473" />
+    <!-- iDevice APX -->
+    <usb-device vendor-id="1452" product-id="4647" />
 </resources>

