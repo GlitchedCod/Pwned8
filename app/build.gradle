@@ -1,6 +1,7 @@
 apply plugin: 'com.android.application'
 
 android {
+    namespace "io.github.davidbuchanan314.nxloader"
     compileSdkVersion 36
     buildToolsVersion "36.0.0"
 
