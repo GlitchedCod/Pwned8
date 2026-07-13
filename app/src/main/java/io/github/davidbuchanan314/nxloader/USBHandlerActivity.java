@@ -16,28 +16,49 @@ public class USBHandlerActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        Intent intent = getIntent();
-        if (intent.getAction().equals(UsbManager.ACTION_USB_DEVICE_ATTACHED)) {
-
-            UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-            int vid = device.getVendorId();
-            int pid = device.getProductId();
-            USBDevHandler handler = null;
-
-            Logger.log(this, "[*] USB device connected: " + device.getDeviceName());
-
-            if (vid == APX_VID && pid == APX_PID) {
-                handler = new PrimaryLoader();
+        try {
+            Intent intent = getIntent();
+            if (intent == null) {
+                Logger.log(this, "[-] No intent received in USBHandlerActivity");
+                finish();
+                return;
             }
 
-            // in future, Linux loaders etc. will be here
-            // maybe I'll have some kind of table mapping vid/pid to a handler interface
+            String action = intent.getAction();
+            Logger.log(this, "[*] USBHandlerActivity started with action: " + action);
+            if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
+                UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                if (device == null) {
+                    Logger.log(this, "[-] No USB device information in attached intent");
+                    finish();
+                    return;
+                }
 
-            if (handler != null)
-                handler.handleDevice(this, device);
+                int vid = device.getVendorId();
+                int pid = device.getProductId();
+                Logger.log(this, "[*] USB device connected: " + device.getDeviceName() + " vid=0x" + Integer.toHexString(vid) + " pid=0x" + Integer.toHexString(pid));
 
-            Logger.log(this, "[*] Done talking to device: " + device.getDeviceName());
+                USBDevHandler handler = null;
+                if (vid == APX_VID && pid == APX_PID) {
+                    handler = new PrimaryLoader();
+                }
 
+                // in future, Linux loaders etc. will be here
+                // maybe I'll have some kind of table mapping vid/pid to a handler interface
+
+                if (handler != null) {
+                    handler.handleDevice(this, device);
+                } else {
+                    Logger.log(this, "[-] No handler found for this USB device");
+                }
+
+                Logger.log(this, "[*] Done talking to device: " + device.getDeviceName());
+            } else {
+                Logger.log(this, "[-] Ignored USB action: " + action);
+            }
+        } catch (Exception e) {
+            Logger.log(this, "[-] Exception in USBHandlerActivity: " + e.toString());
+        } finally {
             finish();
         }
     }
