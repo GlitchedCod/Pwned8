@@ -16,11 +16,7 @@ import java.io.IOException;
 import java.util.Arrays;
 
 public class PrimaryLoader implements USBDevHandler {
-    private static final int RCM_PAYLOAD_ADDR = 0x40010000;
-    private static final int INTERMEZZO_LOCATION = 0x4001F000;
-    private static final int PAYLOAD_LOAD_BLOCK = 0x40020000;
-    private static final int MAX_LENGTH = 0x30298;
-
+    
     private static final int GET_STATUS_REQUEST_TYPE = UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | 0x00; // standard device GET_STATUS
     private static final int SETUP_VENDOR_OUT_DEVICE = UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_VENDOR | 0x00; // vendor-specific, device recipient
     private static final int REQUEST_HEADER = 0x10;
@@ -94,6 +90,30 @@ public class PrimaryLoader implements USBDevHandler {
             Logger.log(context, "[*] controlTransfer GET_STATUS returned " + statusBytes + " bytes");
             if (statusBytes > 0) {
                 Logger.log(context, "[+] Device status: " + Utils.bytesToHex(deviceStatus));
+            }
+
+            // Single-SETUP diagnostic test: send one explicit SETUP packet and log result
+            try {
+                byte[] testPkt = makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
+                        REQUEST_HEADER,
+                        maxLength & 0xFFFF,
+                        (maxLength >> 16) & 0xFFFF,
+                        0);
+                int testRes = conn.controlTransfer(testPkt[0] & 0xFF,
+                        testPkt[1] & 0xFF,
+                        ((testPkt[3] & 0xFF) << 8) | (testPkt[2] & 0xFF),
+                        ((testPkt[5] & 0xFF) << 8) | (testPkt[4] & 0xFF),
+                        null,
+                        0,
+                        5000);
+                Logger.log(context, "[*] Single-SETUP test returned " + testRes);
+                if (testRes < 0) {
+                    Logger.log(context, "[-] Single-SETUP rejected by device (aborting full stream)");
+                    return;
+                }
+            } catch (Exception e) {
+                Logger.log(context, "[-] Exception during single-SETUP test: " + e.toString());
+                return;
             }
 
             Logger.log(context, "[*] Building explicit SETUP packet stream from exploit semantics");

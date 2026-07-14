@@ -9,7 +9,7 @@
     <string name="config_category_restore">Сброс настроек</string>
     <string name="config_primary_payload_description">Вы можете использовать собственный, заранее загруженный, загрузчик.</string>
     <string name="config_primary_payload_button">Выбрать собственный загрузчик</string>
-    <string name="config_restore_description">Восстановить загрузчик по умолчанию на ваш Switch - \"fusee.bin\"</string>
+    <string name="config_restore_description">Восстановить загрузчик по умолчанию на вашем устройстве</string>
     <string name="config_restore_button">Сбросить настройки</string>
 
     <!-- Strings for About -->
